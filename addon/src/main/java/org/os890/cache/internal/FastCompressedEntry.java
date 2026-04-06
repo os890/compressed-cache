@@ -16,9 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.os890.cache.internal;
 
-import org.apache.commons.compress.utils.IOUtils;
 import org.apache.ignite.marshaller.Marshaller;
 
 import java.io.ByteArrayInputStream;
@@ -27,15 +27,32 @@ import java.lang.ref.SoftReference;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
+/**
+ * A compressed cache entry that keeps a {@link SoftReference} to the uncompressed
+ * value for faster repeated reads ({@link org.os890.cache.CompressedValueMode#FAST FAST} mode).
+ *
+ * <p>The soft reference is discarded under JVM memory pressure, after which the value
+ * is restored from the compressed bytes on the next {@link #getUncompressedValue()} call.</p>
+ *
+ * @param <V> the type of the uncompressed value
+ */
 public class FastCompressedEntry<V> extends AbstractCompressedEntry<V> {
+
     private transient SoftReference<V> transientValueRef; //stores the uncompressed value for a faster access - will be dropped if there isn't enough memory or the value gets replicated
 
+    /**
+     * Creates a new fast entry by compressing the given value.
+     *
+     * @param value      the value to compress
+     * @param marshaller the marshaller used to serialise the value before compression
+     */
     FastCompressedEntry(V value, Marshaller marshaller) {
         super(marshaller);
-        this.transientValueRef = new SoftReference<V>(value);
+        this.transientValueRef = new SoftReference<>(value);
         compressToByteArray();
     }
 
+    @Override
     public V getUncompressedValue() {
         V currentValue = null;
 
@@ -52,9 +69,10 @@ public class FastCompressedEntry<V> extends AbstractCompressedEntry<V> {
     }
 
     private void createNewTransientValueRef(V value) {
-        this.transientValueRef = new SoftReference<V>(value);
+        this.transientValueRef = new SoftReference<>(value);
     }
 
+    @Override
     public boolean isValid() {
         if (failureFound) {
             return false;
@@ -87,7 +105,7 @@ public class FastCompressedEntry<V> extends AbstractCompressedEntry<V> {
             try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                  GZIPOutputStream gzipOutputStream = new GZIPOutputStream(outputStream);
                  ByteArrayInputStream inputStream = new ByteArrayInputStream(valueAsByes);) {
-                IOUtils.copy(inputStream, gzipOutputStream);
+                inputStream.transferTo(gzipOutputStream);
                 gzipOutputStream.finish();
                 compressedOutput = outputStream.toByteArray();
             }
@@ -121,7 +139,7 @@ public class FastCompressedEntry<V> extends AbstractCompressedEntry<V> {
             try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(valueToDecompress))) {
                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-                IOUtils.copy(gzipInputStream, outputStream);
+                gzipInputStream.transferTo(outputStream);
                 uncompressedValue = outputStream.toByteArray();
             }
 

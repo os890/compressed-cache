@@ -16,11 +16,13 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.os890.cache;
 
 import com.google.common.cache.CacheBuilder;
 import org.apache.ignite.Ignition;
 import org.apache.ignite.configuration.IgniteConfiguration;
+import org.apache.ignite.internal.binary.BinaryMarshaller;
 import org.apache.ignite.spi.discovery.tcp.TcpDiscoverySpi;
 import org.apache.ignite.spi.discovery.tcp.ipfinder.vm.TcpDiscoveryVmIpFinder;
 import org.os890.cache.internal.GuavaWrapper;
@@ -30,8 +32,19 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Factory for creating and managing {@link Cache} instances backed by Guava
+ * with transparent value compression (GZIP via {@link CompressedEntry}).
+ *
+ * <p>On first use, optionally starts an Apache Ignite node (controlled by the
+ * {@code org.os890.cache.START_IGNITE} system property, default {@code true})
+ * to provide the binary marshaller used for value serialisation.</p>
+ *
+ * <p>Cache instances are stored by name and reused across calls with the same name.</p>
+ */
 public class CompressedCacheFactory {
-    private static Map<String, Cache> cacheMap = new ConcurrentHashMap<>();
+
+    private static Map<String, Cache<?, ?>> cacheMap = new ConcurrentHashMap<>();
 
     static {
         boolean startIgnite = "true".equalsIgnoreCase(System.getProperty("org.os890.cache.START_IGNITE", "true"));
@@ -46,27 +59,83 @@ public class CompressedCacheFactory {
             ipFinder.setAddresses(Collections.singletonList("127.0.0.1"));
             nodeDiscovery.setIpFinder(ipFinder);
 
+            // Ignite 2.17 removed IgniteConfiguration.setDaemon(); the node now runs
+            // as a non-daemon server by default.  BinaryMarshaller is set explicitly so
+            // that GuavaWrapper can retrieve it from the running configuration.
+            BinaryMarshaller binaryMarshaller = new BinaryMarshaller();
+            // Ignite deprecated setMarshaller/getMarshaller but no replacement
+            // exists for explicitly configuring the marshaller.
+            @SuppressWarnings("deprecation")
             IgniteConfiguration configuration = new IgniteConfiguration()
                     .setDiscoverySpi(nodeDiscovery)
-                    .setDaemon(false);
+                    .setMarshaller(binaryMarshaller);
             Ignition.start(configuration);
         }
     }
 
+    /**
+     * Creates or retrieves a cache with the given name and maximum size,
+     * using {@link CompressedValueMode#FAST FAST} compression.
+     *
+     * @param <K>       key type
+     * @param <V>       value type
+     * @param cacheName unique cache name
+     * @param maxSize   maximum number of entries
+     * @param keyClass  key class (unused at runtime, for type inference)
+     * @param valueClass value class (unused at runtime, for type inference)
+     * @return the named cache
+     */
     public static <K, V> Cache<K, V> getOrCreateSimpleCache(String cacheName, long maxSize, Class<K> keyClass, Class<V> valueClass) {
         return getOrCreateCache(cacheName, CacheBuilder.newBuilder().maximumSize(maxSize), keyClass, valueClass, CompressedValueMode.FAST);
     }
 
+    /**
+     * Creates or retrieves a cache with the given name, maximum size, and compression mode.
+     *
+     * @param <K>                key type
+     * @param <V>                value type
+     * @param cacheName          unique cache name
+     * @param maxSize            maximum number of entries
+     * @param keyClass           key class (unused at runtime, for type inference)
+     * @param valueClass         value class (unused at runtime, for type inference)
+     * @param compressedValueMode compression strategy to use
+     * @return the named cache
+     */
     public static <K, V> Cache<K, V> getOrCreateSimpleCache(String cacheName, long maxSize, Class<K> keyClass, Class<V> valueClass, CompressedValueMode compressedValueMode) {
         return getOrCreateCache(cacheName, CacheBuilder.newBuilder().maximumSize(maxSize), keyClass, valueClass, compressedValueMode);
     }
 
-    public static <K, V> Cache<K, V> getOrCreateCache(String cacheName, CacheBuilder providedCacheBuilder, Class<K> keyClass, Class<V> valueClass) {
+    /**
+     * Creates or retrieves a cache with the given name and Guava cache builder,
+     * using {@link CompressedValueMode#FAST FAST} compression.
+     *
+     * @param <K>                  key type
+     * @param <V>                  value type
+     * @param cacheName            unique cache name
+     * @param providedCacheBuilder Guava cache builder controlling eviction and other settings
+     * @param keyClass             key class (unused at runtime, for type inference)
+     * @param valueClass           value class (unused at runtime, for type inference)
+     * @return the named cache
+     */
+    public static <K, V> Cache<K, V> getOrCreateCache(String cacheName, CacheBuilder<Object, Object> providedCacheBuilder, Class<K> keyClass, Class<V> valueClass) {
         return getOrCreateCache(cacheName, providedCacheBuilder, keyClass, valueClass, CompressedValueMode.FAST);
     }
 
-    public static <K, V> Cache<K, V> getOrCreateCache(String cacheName, CacheBuilder providedCacheBuilder, Class<K> keyClass, Class<V> valueClass, CompressedValueMode compressedValueMode) {
-        Cache<K, V> foundCache = cacheMap.get(cacheName);
+    /**
+     * Creates or retrieves a cache with the given name, Guava cache builder, and compression mode.
+     *
+     * @param <K>                  key type
+     * @param <V>                  value type
+     * @param cacheName            unique cache name
+     * @param providedCacheBuilder Guava cache builder controlling eviction and other settings
+     * @param keyClass             key class (unused at runtime, for type inference)
+     * @param valueClass           value class (unused at runtime, for type inference)
+     * @param compressedValueMode  compression strategy to use
+     * @return the named cache
+     */
+    @SuppressWarnings("unchecked")
+    public static <K, V> Cache<K, V> getOrCreateCache(String cacheName, CacheBuilder<Object, Object> providedCacheBuilder, Class<K> keyClass, Class<V> valueClass, CompressedValueMode compressedValueMode) {
+        Cache<K, V> foundCache = (Cache<K, V>) cacheMap.get(cacheName);
 
         if (foundCache != null) {
             return foundCache;
@@ -74,8 +143,9 @@ public class CompressedCacheFactory {
         return createCache(cacheName, providedCacheBuilder, compressedValueMode);
     }
 
-    private static synchronized <K, V> Cache<K, V> createCache(String cacheName, CacheBuilder cacheBuilder, CompressedValueMode compressedValueMode) {
-        Cache<K, V> foundCache = cacheMap.get(cacheName);
+    @SuppressWarnings("unchecked")
+    private static synchronized <K, V> Cache<K, V> createCache(String cacheName, CacheBuilder<Object, Object> cacheBuilder, CompressedValueMode compressedValueMode) {
+        Cache<K, V> foundCache = (Cache<K, V>) cacheMap.get(cacheName);
 
         if (foundCache != null) {
             return foundCache;

@@ -16,10 +16,32 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.os890.cache;
 
+/**
+ * Represents a cache entry whose value is stored in compressed form.
+ *
+ * <p>Implementations keep the serialised and GZIP-compressed value and
+ * decompress it on demand when {@link #getUncompressedValue()} is called.</p>
+ *
+ * @param <V> the type of the uncompressed value
+ */
 public interface CompressedEntry<V> {
+
+    /**
+     * Returns {@code true} if this entry can still produce a value.
+     *
+     * <p>An entry becomes invalid if compression or decompression failed.</p>
+     *
+     * @return {@code true} if the entry is valid
+     */
     boolean isValid();
 
+    /**
+     * Returns the decompressed value stored in this entry.
+     *
+     * @return the original uncompressed value, or {@code null} if unavailable
+     */
     V getUncompressedValue();
 }

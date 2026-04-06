@@ -16,36 +16,74 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.os890.cache.test;
 
+/**
+ * Test value object used to exercise cache put/get round-trips.
+ */
 public class MyValue {
+
     private final String label;
     private final int value;
 
+    /**
+     * Creates a new test value.
+     *
+     * @param label a descriptive label
+     * @param value an integer value
+     */
     public MyValue(String label, int value) {
         this.label = label;
         this.value = value;
     }
 
+    /**
+     * Returns the label.
+     *
+     * @return the label
+     */
     public String getLabel() {
         return label;
     }
 
+    /**
+     * Returns the integer value.
+     *
+     * @return the integer value
+     */
     public int getValue() {
         return value;
     }
 
+    /**
+     * Compares this value to the specified object for equality.
+     *
+     * @param o the object to compare with
+     * @return {@code true} if the given object has the same label and value
+     */
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
 
         MyValue myValue = (MyValue) o;
 
-        if (value != myValue.value) return false;
+        if (value != myValue.value) {
+            return false;
+        }
         return label != null ? label.equals(myValue.label) : myValue.label == null;
     }
 
+    /**
+     * Returns a hash code based on the label and value fields.
+     *
+     * @return the hash code
+     */
     @Override
     public int hashCode() {
         int result = label != null ? label.hashCode() : 0;

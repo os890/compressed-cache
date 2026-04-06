@@ -16,9 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.os890.cache.internal;
 
-import org.apache.commons.compress.utils.IOUtils;
 import org.apache.ignite.marshaller.Marshaller;
 
 import java.io.ByteArrayInputStream;
@@ -26,12 +26,29 @@ import java.io.ByteArrayOutputStream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
+/**
+ * A compressed cache entry that stores only the GZIP-compressed bytes without
+ * a soft reference to the uncompressed value ({@link org.os890.cache.CompressedValueMode#SMALL SMALL} mode).
+ *
+ * <p>Every read decompresses and deserialises the value, which is slower than
+ * {@link FastCompressedEntry} but uses less memory.</p>
+ *
+ * @param <V> the type of the uncompressed value
+ */
 public class SmallCompressedEntry<V> extends AbstractCompressedEntry<V> {
+
+    /**
+     * Creates a new small entry by compressing the given value.
+     *
+     * @param value      the value to compress
+     * @param marshaller the marshaller used to serialise the value before compression
+     */
     SmallCompressedEntry(V value, Marshaller marshaller) {
         super(marshaller);
         compressToByteArray(value);
     }
 
+    @Override
     public V getUncompressedValue() {
         if (compressedValue != null) {
             return restoreFromByteArray();
@@ -39,6 +56,7 @@ public class SmallCompressedEntry<V> extends AbstractCompressedEntry<V> {
         return null;
     }
 
+    @Override
     public boolean isValid() {
         return !failureFound && compressedValue != null;
     }
@@ -59,7 +77,7 @@ public class SmallCompressedEntry<V> extends AbstractCompressedEntry<V> {
             try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                  GZIPOutputStream gzipOutputStream = new GZIPOutputStream(outputStream);
                  ByteArrayInputStream inputStream = new ByteArrayInputStream(valueAsByes);) {
-                IOUtils.copy(inputStream, gzipOutputStream);
+                inputStream.transferTo(gzipOutputStream);
                 gzipOutputStream.finish();
                 compressedOutput = outputStream.toByteArray();
             }
@@ -84,7 +102,7 @@ public class SmallCompressedEntry<V> extends AbstractCompressedEntry<V> {
             try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(valueToDecompress))) {
                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-                IOUtils.copy(gzipInputStream, outputStream);
+                gzipInputStream.transferTo(outputStream);
                 uncompressedValue = outputStream.toByteArray();
             }
 
